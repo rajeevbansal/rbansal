@@ -1,0 +1,5 @@
+#/bin/bash
+FVAL=`ifconfig | grep "inet addr" | awk -F: '{print $2}' | awk '{print $1}' | head -1`
+SVAL=`grep -o '[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}' /etc/yum.repos.d/localyumserver.repo`
+sed -i -e "s/${SVAL}/${FVAL}/g" /etc/yum.repos.d/localyumserver.repo
+echo "" #End
