@@ -12,13 +12,13 @@ rajeev.bansal@rocketmail.com
 
 Note 
 ----
-This module can be used to Setup Local YUM Server in CentOS 6.x / RHEL 6.x / Scientific Linux 6.x.
+This module can be used to Setup Local YUM Server in CentOS 6.x / RHEL 6.x.
 
-Before setting up the local yum Server YOU would need to mount the contents of your CentOS 6.x/RHEL 6.x/Scientific Linux 6.x DVD. Follow the below steps to mount the Packages.
+Before setting up the local yum Server YOU would need to mount the contents of your CentOS 6.x/RHEL DVD. Follow the below steps to mount the Packages.
 
 Use following command:
 
-## Create testuser ##
+## Create Directory##
 mkdir -p /mnt/iso/
 
 mount -o loop /opt/rajeev/isos/rhel-server-6.4-x86_64-dvd.iso /mnt/iso/
@@ -32,5 +32,5 @@ cd /mnt/iso/Packages/
 ## OR ##
 service httpd restart
 
---------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------
 
