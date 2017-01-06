@@ -1,0 +1,71 @@
+heat_template_version: 2014-10-16
+
+description: TOMCAT Server 
+
+parameters:
+  INSTANCE_NAME:
+    type: string
+    description : Instance Name
+  Image_Name:
+    type: string
+    description: Image use to boot a server
+    default: Ubuntu1404, Ubuntu1204, Oracle-Linux7.1, Centos7.2
+  Public_Network_ID:
+    type: string
+    default: PUBLIC NETWORK ID or NAME
+  Private_Network_ID:
+    type: string
+    default: PRIVATE NETWORK ID or NAME
+  Private_Network_Subnet_ID:
+    type: string
+    default: PRIVATE SUB-NET ID or NAME
+  Key_Pair_Name:
+    type: string
+    default: test-key
+  Flavor_Name:
+    type: string
+    label: Flavor
+    description: Type of instance (flavor) to be used on the compute instance.
+    default: m1.medium, m1.large, m1.xlarge, m1.2xlarge, m1.4xlarge 
+  
+  
+resources:
+  server:
+    type: OS::Nova::Server
+    properties:
+      key_name: { get_param: Key_Pair_Name }
+      flavor: { get_param: Flavor_Name }
+      networks:
+        - port: { get_resource: instance_port }
+      image: { get_param: Image_Name } 
+      name: { get_param: INSTANCE_NAME }
+
+  instance_port:
+     type: OS::Neutron::Port
+     properties:
+       network_id: { get_param: Private_Network_ID }
+       fixed_ips:
+         - subnet_id: { get_param: Private_Network_Subnet_ID }
+       security_groups: [{get_resource: server_security_group }]
+  instance_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: Public_Network_ID }
+      port_id: { get_resource: instance_port }
+  server_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group rules for server
+      name: TOMCATGroup
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+outputs:
+  server_private_ip:
+     description: IP address of the server in the private network
+     value: { get_attr: [ server, first_address ] }
+

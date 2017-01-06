@@ -1,0 +1,415 @@
+heat_template_version: 2013-05-23
+description: Template for setting up DNS server
+parameters:
+  image:
+    description: Image ID
+    type: string
+    default: Ubuntu1404, Ubuntu1204, Oracle-Linux7.1, Centos7.2
+  Master_Name:
+    type: string
+    default: Name of the Master Instance
+  Slave_Name:
+    type: string
+    default: Name of the Slave Instance
+  Instance_Flavor:
+    description: instance flavor for server
+    type: string
+    default: m1.medium, m1.large, m1.xlarge, m1.2xlarge, m1.4xlarge
+  vol_size:
+    type: string
+    default: 20
+  key_name:
+    description: name of a key pair to enable SSH access to the instances
+    type: string
+    default: CloudOperations
+  Public_Network_ID:
+    type: string
+    default: PUBLIC NETWORK ID or NAME
+  Private_Network_ID:
+    type: string
+    default: PRIVATE NETWORK ID or NAME
+  Private_Subnet_ID:
+    type: string
+    default: PRIVATE SUB-NET ID or NAME
+  Domain_Name:
+    description: your Domain Name
+    type: string
+    default: example.com
+
+
+
+
+resources:
+  MasterServer:
+    type: OS::Nova::Server
+    properties:
+      block_device_mapping:
+        - device_name: vda
+          delete_on_termination: false
+          volume_id: { get_resource: volume }
+      flavor: {get_param: Instance_Flavor}
+      key_name: {get_param: key_name}
+      name: {get_param: Master_Name}
+      networks:
+        - port: { get_resource: instance_port }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -v
+            export http_proxy="http://<IPADRESS>:<PORT>/"
+            export https_proxy="http://<IPADRESS>:<PORT>/"
+            apt-get update
+            apt-get install bind9 bind9utils bind9-doc telnet --yes
+            OWNIP=`ip r l | grep -v "^d" | awk '{print $9}'`
+
+            # Update BIND configuration with the specified options.
+            mkdir /etc/bind/keys
+            cat > /etc/bind/keys/Kddnsupdate.<number>.key << EOF
+            ddnsupdate. IN KEY 0 3 157 <keyid>/<keyid> <keyid>/qg==
+            EOF
+            cat > /etc/bind/keys/Kddnsupdate.<number>.private << EOF
+            Private-key-format: <version>
+            Algorithm: 157 (hash)
+            Key: <keyid>/<keyid> <keyid>/qg==
+            Bits: AAA=
+            Created: <date>
+            Publish: <date>
+            Activate: <date>
+            EOF
+            mkdir /etc/bind/zones
+            cat > /etc/bind/zones/db.__Domain_Name__  << EOF
+            ;
+            ; BIND data file for forward.__Domain_Name__ zone
+            ;
+            \$TTL    604800
+            @       IN      SOA     $HOSTNAME.__Domain_Name__. root.$HOSTNAME.__Domain_Name__. (
+                                          5         ; Serial
+                                          604800    ; Refresh (1 week)
+                                          86400     ; Retry (1 day)
+                                          2419200   ; Expire (4 weeks)
+                                          604800    ; minimum (1 week)
+                                          )
+                                 NS       $HOSTNAME.__Domain_Name__.
+
+            \$ORIGIN __Domain_Name__.
+            @          IN      NS      $HOSTNAME.__Domain_Name__.
+            @          IN      A       $OWNIP
+            @          IN      AAAA    ::1
+            $HOSTNAME  IN      A       $OWNIP
+            EOF
+            cp /etc/bind/zones/db.__Domain_Name__ /var/lib/bind/
+            service bind9 reload
+
+            cat > /etc/bind/named.conf.options << EOF
+            options {
+                    directory "/var/cache/bind";
+                        forwarders { 8.8.8.8; 8.8.4.4;};
+                        allow-query { any; };
+                        recursion yes;
+               forward only;
+               notify yes;
+
+                     listen-on-v6 { none; };
+               listen-on { any; } ;
+                     allow-query-cache { any; } ;
+                     allow-recursion { any; } ;
+               version "go away";
+
+            };
+            EOF
+            cat > /etc/resolv.conf << EOF
+            nameserver $OWNIP
+            EOF
+
+
+            cat > /etc/bind/named.conf.local << EOF
+            key "ddnsupdate" {
+	    algorithm hmac-md5;
+	    secret "<keyid>/<keyid> <keyid>/qg==";
+            };
+            zone "__Domain_Name__" {
+                    type master;
+                    file "/var/lib/bind/db.__Domain_Name__";
+                    allow-transfer { any; };
+                    notify  yes;
+                    allow-update    { key "ddnsupdate"; };
+            };
+            EOF
+
+            cat >> /etc/apparmor.d/usr.sbin.named << EOF
+
+            /usr/sbin/named {
+
+              capability net_bind_service,
+              capability setgid,
+              capability setuid,
+              capability sys_chroot,
+              capability sys_resource,
+
+              /etc/bind/** r,
+              /etc/bind/zones/** rw,
+              /var/lib/bind/** rw,
+              /var/lib/bind/ rw,
+              /var/cache/bind/** lrw,
+              /var/cache/bind/ rw,
+
+              # gssapi
+              /etc/krb5.keytab kr,
+              /etc/bind/krb5.keytab kr,
+
+              # ssl
+              /etc/ssl/openssl.cnf r,
+
+              # GeoIP data files for GeoIP ACLs
+              /usr/share/GeoIP/** r,
+
+              # dnscvsutil package
+              /var/lib/dnscvsutil/compiled/** rw,
+
+              /proc/net/if_inet6 r,
+              /proc/*/net/if_inet6 r,
+              /usr/sbin/named mr,
+              /{,var/}run/named/named.pid w,
+              /{,var/}run/named/session.key w,
+              # support for resolvconf
+              /{,var/}run/named/named.options r,
+
+              # some people like to put logs in /var/log/named/ instead of having
+              # syslog do the heavy lifting.
+              /var/log/named/** rw,
+              /var/log/named/ rw,
+
+              # Site-specific additions and overrides. See local/README for details.
+              #include <local/usr.sbin.named>
+            }
+            EOF
+            service apparmor reload
+            chown -R bind:bind /etc/bind/zones
+            service bind9 restart
+            
+            touch /usr/local/bin/add-rec-a
+            cat <<EOT >> /usr/local/bin/add-rec-a
+            ZONE=\$1
+            NAME=\$2
+            IP=\$3
+
+            if [ "\$#" != "3" ]; then
+                    echo "Usage: $(basename $0) <zone> <fqdn> <ip>";
+                    exit
+            fi
+
+            nsupdate <<EOF
+            server localhost
+            key ddnsupdate <keyid>/<keyid> <keyid>/qg==
+            zone \$ZONE
+            update add \$NAME 86400 IN A \$IP
+            show
+            send
+            EOF
+            EOT
+
+            touch /usr/local/bin/del-rec-a
+            cat <<EOT >> /usr/local/bin/del-rec-a
+            ZONE=\$1
+            NAME=\$2
+
+            if [ "\$#" != "2" ]; then
+                    echo "Usage: $(basename $0) <zone> <fqdn>";
+                    exit
+            fi
+
+            nsupdate <<EOF
+            server localhost
+            key ddnsupdate <keyid>/<keyid> <keyid>/qg==
+            zone \$ZONE
+            update delete \$NAME
+            show
+            send
+            EOF
+            EOT
+
+            touch /usr/local/bin/add-rec-a
+            cat <<EOT >> /usr/local/bin/add-rec-cname
+            ZONE=\$1
+            NAME=\$2
+            CNAME=\$3
+
+            if [ "\$#" != "3" ]; then
+                    echo "Usage: $(basename $0) <zone> <name> <cname>";
+                    exit
+            fi
+
+            nsupdate <<EOF
+            server localhost
+            key ddnsupdate <keyid>/<keyid> <keyid>/qg==
+            zone \$ZONE
+            update add \$CNAME 86400 IN CNAME \$NAME
+            show
+            send
+            EOF
+            EOT
+
+            touch /usr/local/bin/del-rec-a
+            cat <<EOT >> /usr/local/bin/del-rec-cname
+            ZONE=\$1
+            CNAME=\$2
+
+            if [ "\$#" != "2" ]; then
+                    echo "Usage: $(basename $0) <zone> <cname>";
+                    exit
+            fi
+
+            nsupdate <<EOF
+            server localhost
+            key ddnsupdate <keyid>/<keyid> <keyid>/qg==
+            zone \$ZONE
+            update delete \$CNAME CNAME
+            show
+            send
+            EOF
+            EOT
+            ex -sc '1i|#!/bin/bash' -cx /usr/local/bin/add-rec-a
+            ex -sc '1i|#!/bin/bash' -cx /usr/local/bin/del-rec-a
+            ex -sc '1i|#!/bin/bash' -cx /usr/local/bin/add-rec-cname
+            ex -sc '1i|#!/bin/bash' -cx /usr/local/bin/del-rec-cname
+
+            chmod +x /usr/local/bin/add-rec-a
+            chmod +x /usr/local/bin/del-rec-a
+            chmod +x /usr/local/bin/add-rec-cname
+            chmod +x /usr/local/bin/del-rec-cname
+          params:
+            __Domain_Name__: { get_param: Domain_Name }
+
+  instance_port:
+     type: OS::Neutron::Port
+     properties:
+       network_id: { get_param: Private_Network_ID }
+       fixed_ips:
+         - subnet_id: { get_param: Private_Subnet_ID }
+       security_groups: [{get_resource: server_security_group }]
+  instance_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: Public_Network_ID }
+      port_id: { get_resource: instance_port }
+
+  volume:
+    type: OS::Cinder::Volume
+    properties:
+      image: { get_param: image }
+      size: { get_param: vol_size }
+
+
+
+  SlaveServer:
+    type: OS::Nova::Server
+    properties:
+      block_device_mapping:
+        - device_name: vda
+          delete_on_termination: false
+          volume_id: { get_resource: volume1 }
+      flavor: {get_param: Instance_Flavor}
+      key_name: {get_param: key_name}
+      name: {get_param: Slave_Name}
+      networks:
+        - port: { get_resource: instance_port1 }
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash -v
+            export http_proxy="http://<IPADDRESS>:<PORT>/"
+            export https_proxy="http://<IPADDRESS>:<PORT>/"
+            apt-get update
+            apt-get install bind9 bind9utils bind9-doc telnet --yes
+            OWNIP=`ip r l | grep -v "^d" | awk '{print $9}'`
+
+            # Update BIND configuration with the specified options.
+            cat > /etc/bind/named.conf.local << EOF
+            zone "__Domain_Name__" {
+                    type slave;
+                    file "/var/lib/bind/db.__Domain_Name__";
+                    masters { __masterip__; };
+            };
+            EOF
+
+            cat > /etc/bind/named.conf.options << EOF
+            options {
+                    directory "/var/cache/bind";
+                    recursion yes;
+                    allow-transfer { none; };
+                        forwarders { 8.8.8.8; 8.8.4.4;};
+                    forward only;
+                    listen-on { any; } ;
+                          version "go away";
+                          allow-query { any; } ;
+                          allow-query-cache { any; } ;
+                          allow-recursion { any; } ;
+            };
+
+            EOF
+            cat > /etc/resolv.conf << EOF
+            nameserver __masterip__
+            nameserver $OWNIP
+            EOF
+            service bind9 restart
+
+          params:
+            __Domain_Name__: { get_param: Domain_Name }
+            __masterip__: { get_attr: [ MasterServer, first_address ]}
+
+  instance_port1:
+     type: OS::Neutron::Port
+     properties:
+       network_id: { get_param: Private_Network_ID }
+       fixed_ips:
+         - subnet_id: { get_param: Private_Subnet_ID }
+       security_groups: [{get_resource: server_security_group }]
+  instance_floating_ip1:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network_id: { get_param: Public_Network_ID }
+      port_id: { get_resource: instance_port1 }
+
+  server_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group rules for server
+      name: DNSSecurityGroup
+      rules:
+        - protocol: udp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 53
+          port_range_max: 53
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 53
+          port_range_max: 53
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 80
+          port_range_max: 80
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 443
+          port_range_max: 443
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 8080
+          port_range_max: 8080
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 22
+          port_range_max: 22
+        - protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+          port_range_min: 8440
+          port_range_max: 8441
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: icmp
+
+  volume1:
+    type: OS::Cinder::Volume
+    properties:
+      image: { get_param: image }
+      size: { get_param: vol_size }
+
