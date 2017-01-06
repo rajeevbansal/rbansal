@@ -1,0 +1,20 @@
+#Create the following Directory:
+#===============================
+#packagesupdate
+
+#File:
+#=====
+#/srv/salt/env/prd/packagesupdate/init.sls
+
+#Content:
+#========
+{%- if pillar.packagesupdate is defined %}
+include:
+{%- if pillar.packagesupdate.packages is defined %}
+- packagesupdate.upgradepkg
+{%- endif %}
+{%- if pillar.packagesupdate.restarts is defined %}
+- packagesupdate.servicerestart
+{%- endif %}
+{%- endif %}
+

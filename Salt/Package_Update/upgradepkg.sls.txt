@@ -1,0 +1,18 @@
+#Create the following Directory:
+#===============================
+#packagesupdate
+
+#File:
+#=====
+#/srv/salt/env/prd/packagesupdate/upgradepkg.sls
+
+#Content:
+#========
+{% for topname, name_version in salt['pillar.get']('packagesupdate:packages', {}).iteritems() %}
+
+update_step_for_{{ topname }}:
+  pkg.latest:
+   - name: {{ name_version.name}}
+   - version: {{ name_version.version }}
+
+{% endfor %}

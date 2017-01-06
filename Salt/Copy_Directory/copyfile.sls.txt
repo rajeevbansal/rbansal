@@ -1,0 +1,18 @@
+#Create the following Directory:
+#===============================
+#copydir
+
+#File:
+#=====
+#/srv/salt/env/prd/copydir/copyfile.sls
+
+#Content:
+#========
+{% for topname, name_source in salt['pillar.get']('copydir:copy', {}).iteritems() %}
+
+copy_file_for_{{ topname }}:
+  file.managed:
+   - name: {{ name_source.name}}
+   - source: {{ name_source.source }}
+
+{% endfor %}

@@ -1,0 +1,22 @@
+#Edit the following file:
+#========================
+
+#File: 
+#=====
+#/srv/salt/reclass/nodes/_generated/config.openstack.local.yml
+
+#Content:
+#========
+
+  copydir:
+    copy:
+      script:
+        name: '/root/'
+        source: 'salt://custfile/'
+
+  salt:
+    master:
+      accept_policy: open_mode
+
+
+

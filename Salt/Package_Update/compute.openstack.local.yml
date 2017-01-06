@@ -1,0 +1,41 @@
+#Edit the following file:
+#========================
+
+#File: 
+#=====
+#/srv/salt/reclass/nodes/_generated/compute.openstack.local.yml
+
+#Content:
+#========
+  packagesupdate:
+    packages:
+      curl:
+        name: curl
+        version: latest
+      wget:
+        name: wget
+        version: latest
+      telnet:
+        name: telnet
+        version: latest
+      openssh-client:
+        name: openssh-client
+        version: latest
+
+    restarts:
+      ntp:
+        name: ntp
+        state: restart
+      ssh:
+        name: ssh
+        state: restart
+      rsync:
+        name: rysnc
+        state: restart
+
+  salt:
+    master:
+      accept_policy: open_mode
+
+
+

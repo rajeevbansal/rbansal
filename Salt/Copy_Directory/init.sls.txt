@@ -1,0 +1,18 @@
+#Create the following Directory:
+#===============================
+#copydir
+
+#File:
+#=====
+#/srv/salt/env/prd/copydir/init.sls
+
+#Content:
+#========
+{%- if pillar.copydir is defined %}
+include:
+{%- if pillar.copydir.copy is defined %}
+- copydir.copyfile
+{%- endif %}
+{%- endif %}
+
+
